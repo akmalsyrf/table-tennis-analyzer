@@ -2,6 +2,10 @@
 
 Minimal FastAPI API that accepts a table tennis video upload and returns simple rally/hit statistics.
 
+### Docs
+
+- Pipeline flow: `docs/flow.md`
+
 ### Setup
 
 Recommended (uses `justfile`):

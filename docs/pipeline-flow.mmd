@@ -1,0 +1,22 @@
+flowchart TD
+  A["POST /analyze - Upload video"] --> B["Save to uploads id.mp4"]
+  B --> C["OpenCV VideoCapture - read frames"]
+  C --> D{"Frame sampling - frame_idx % frame_step == 0?"}
+  D -- no --> C
+  D -- yes --> E{"Resize? w > max_width"}
+  E -- yes --> F["cv2.resize to max_width"]
+  E -- no --> G["Use original frame"]
+  F --> H["BallDetector.detect"]
+  G --> H
+
+  H --> I{"YOLO ready?"}
+  I -- yes --> J["YOLOv8 predict - conf filter - class 32 sports ball"]
+  I -- no --> K["Fallback HSV mask - orange/white blobs"]
+  J --> L["Detection or None"]
+  K --> L
+
+  L --> M["track_positions - max_jump_px"]
+  M --> N["compute_rallies - missing + direction_change"]
+  N --> O["AnalyzeResponse - total_rallies + rallies"]
+  O --> P["Write outputs stem.json"]
+  O --> Q["Return JSON response"]
