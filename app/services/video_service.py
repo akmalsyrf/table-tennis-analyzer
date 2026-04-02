@@ -28,8 +28,16 @@ def analyze_video(video_path: Path, outputs_dir: Path) -> AnalyzeResponse:
         logger.warning("Could not open video: %s", video_path)
         return AnalyzeResponse(total_rallies=0, rallies=[])
 
-    fps = float(cap.get(cv2.CAP_PROP_FPS) or 30.0)
-    detector = BallDetector()
+    fps_native = float(cap.get(cv2.CAP_PROP_FPS) or 30.0)
+
+    # POC speed knobs (kept simple and conservative).
+    target_fps = 10.0
+    frame_step = max(1, int(round(max(fps_native, 1.0) / target_fps)))
+    fps_eff = fps_native / frame_step
+
+    max_width = 640  # resize for faster detection on CPU
+
+    detector = BallDetector(yolo_model="yolov8n.pt", yolo_conf=0.25, prefer_coco_sports_ball=True)
 
     detections_by_frame: list[Detection | None] = []
     frame_idx = 0
@@ -37,6 +45,16 @@ def analyze_video(video_path: Path, outputs_dir: Path) -> AnalyzeResponse:
         ok, frame = cap.read()
         if not ok:
             break
+        if frame_idx % frame_step != 0:
+            frame_idx += 1
+            continue
+
+        if max_width > 0:
+            h, w = frame.shape[:2]
+            if w > max_width and w > 0:
+                scale = max_width / float(w)
+                frame = cv2.resize(frame, (max_width, int(round(h * scale))), interpolation=cv2.INTER_AREA)
+
         det = detector.detect(frame)
         detections_by_frame.append(det)
         frame_idx += 1
@@ -45,15 +63,18 @@ def analyze_video(video_path: Path, outputs_dir: Path) -> AnalyzeResponse:
 
     track: list[TrackPoint | None] = track_positions(
         detections_by_frame=detections_by_frame,
-        max_jump_px=80.0,
+        # With lower FPS and resized frames, allow a bit more jump tolerance.
+        max_jump_px=120.0,
     )
 
     rallies = compute_rallies(
         track=track,
-        fps=fps,
-        missing_end_frames=12,
-        direction_change_threshold=0.65,
-        min_frames_per_rally=10,
+        fps=fps_eff,
+        # Missing threshold expressed in "effective frames": ~0.8s of missing ends a rally.
+        missing_end_frames=max(4, int(round(0.8 * fps_eff))),
+        direction_change_threshold=0.55,
+        # Require ~1.0s minimum rally length at effective FPS.
+        min_frames_per_rally=max(6, int(round(1.0 * fps_eff))),
     )
 
     response = AnalyzeResponse(
@@ -66,7 +87,10 @@ def analyze_video(video_path: Path, outputs_dir: Path) -> AnalyzeResponse:
         out_path = outputs_dir / f"{video_path.stem}.json"
         payload = {
             "video": str(video_path),
-            "fps": fps,
+            "fps_native": fps_native,
+            "fps_effective": fps_eff,
+            "frame_step": frame_step,
+            "resize_max_width": max_width,
             "total_rallies": response.total_rallies,
             "rallies": [r.model_dump() for r in response.rallies],
             "debug": {

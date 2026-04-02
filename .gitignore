@@ -1,3 +1,10 @@
+# Directories
+uploads/
+outputs/
+
+# YOLO model
+yolov8n.pt
+
 # Python
 __pycache__/
 *.py[cod]

@@ -26,9 +26,16 @@ class BallDetector:
     - Otherwise fall back to a simple color-based heuristic (orange/white-ish ball)
     """
 
-    def __init__(self, yolo_model: str = "yolov8n.pt") -> None:
+    def __init__(
+        self,
+        yolo_model: str = "yolov8n.pt",
+        yolo_conf: float = 0.25,
+        prefer_coco_sports_ball: bool = True,
+    ) -> None:
         self._yolo = None
         self._yolo_ready = False
+        self._yolo_conf = float(yolo_conf)
+        self._prefer_coco_sports_ball = bool(prefer_coco_sports_ball)
 
         try:
             from ultralytics import YOLO  # type: ignore
@@ -64,8 +71,25 @@ class BallDetector:
 
             confs = boxes.conf.detach().cpu().numpy().astype(float)
             xyxy = boxes.xyxy.detach().cpu().numpy().astype(float)
+            clses = None
+            try:
+                clses = boxes.cls.detach().cpu().numpy().astype(int)
+            except Exception:
+                clses = None
 
-            best_i = int(np.argmax(confs))
+            # COCO class id for "sports ball" is 32 in common YOLO COCO mappings.
+            # Filtering massively reduces false positives for the default yolov8n.pt model.
+            idxs = np.arange(len(confs))
+            idxs = idxs[confs >= self._yolo_conf]
+            if idxs.size == 0:
+                return None
+
+            if self._prefer_coco_sports_ball and clses is not None and len(clses) == len(confs):
+                ball_idxs = idxs[clses[idxs] == 32]
+                if ball_idxs.size > 0:
+                    idxs = ball_idxs
+
+            best_i = int(idxs[np.argmax(confs[idxs])])
             x1, y1, x2, y2 = xyxy[best_i]
             cx = (x1 + x2) / 2.0
             cy = (y1 + y2) / 2.0
@@ -107,7 +131,7 @@ class BallDetector:
                 area = float(cv2.contourArea(c))
                 if area < 4.0 or area > 800.0:
                     continue
-                x, y, cw, ch = cv2.boundingRect(c)
+                _, _, cw, ch = cv2.boundingRect(c)
                 if cw <= 0 or ch <= 0:
                     continue
                 aspect = cw / float(ch)
