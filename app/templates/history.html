@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}History{% endblock %}
+
+{% block content %}
+<h1>Riwayat analisis</h1>
+<p class="lead muted">Daftar diurutkan dari yang terbaru (berdasarkan file JSON di <code>outputs/</code>).</p>
+
+{% if not items %}
+  <div class="empty card">
+    <p>Belum ada hasil. <a href="/">Unggah video</a> terlebih dahulu.</p>
+  </div>
+{% else %}
+  <div class="table-wrap card">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Waktu</th>
+          <th>File video</th>
+          <th>Rallies</th>
+          <th>FPS</th>
+          <th>Frames</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for it in items %}
+        <tr>
+          <td class="nowrap">{{ it.modified_ts | dt }}</td>
+          <td class="filename" title="{{ it.video_filename }}">{{ it.video_filename }}</td>
+          <td>{{ it.total_rallies }}</td>
+          <td class="muted">{% if it.fps_effective is not none %}{{ "%.1f"|format(it.fps_effective) }}{% else %}—{% endif %}</td>
+          <td class="muted">{% if it.num_frames is not none %}{{ it.num_frames }}{% else %}—{% endif %}</td>
+          <td><a class="btn btn-small" href="/results/{{ it.id }}">Detail</a></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% endif %}
+{% endblock %}

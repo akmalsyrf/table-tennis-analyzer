@@ -4,3 +4,4 @@ opencv-python
 ultralytics
 numpy
 python-multipart
+jinja2

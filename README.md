@@ -20,6 +20,14 @@ just install
 just run
 ```
 
+Then open **http://127.0.0.1:8000/** for the web UI (upload, history, result detail), or use the JSON API below.
+
+### Web UI (Jinja2)
+
+- **/** — upload video (POST ke `/upload`, redirect to results)
+- **/history** — list of analyze from `outputs/*.json`
+- **/results/{id}** — detail one analyze (without heavy `track` payload)
+
 ### API
 
 - `POST /analyze` (multipart form upload field name: `file`)

@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+{% block title %}Hasil{% endblock %}
+
+{% block content %}
+<p class="breadcrumb muted"><a href="/history">History</a> / {{ data.id }}</p>
+
+<h1>Hasil analisis</h1>
+<p class="lead">Video: <strong>{{ data.video_filename }}</strong></p>
+
+{% if video_available %}
+<section class="card video-card">
+  <h2>Putar video</h2>
+  <video class="result-video" controls playsinline preload="metadata" src="/videos/{{ data.id }}">
+    Browser tidak mendukung pemutaran video.
+  </video>
+</section>
+{% else %}
+<section class="card muted-block">
+  <p class="muted">File video tidak ditemukan di <code>uploads/</code> (mungkin sudah dihapus atau id tidak cocok).</p>
+</section>
+{% endif %}
+
+<section class="stats-grid">
+  <div class="stat card">
+    <span class="stat-label">Total rallies</span>
+    <span class="stat-value">{{ data.total_rallies }}</span>
+  </div>
+  <div class="stat card">
+    <span class="stat-label">FPS native</span>
+    <span class="stat-value">{% if data.fps_native is not none %}{{ "%.2f"|format(data.fps_native) }}{% else %}—{% endif %}</span>
+  </div>
+  <div class="stat card">
+    <span class="stat-label">FPS efektif</span>
+    <span class="stat-value">{% if data.fps_effective is not none %}{{ "%.2f"|format(data.fps_effective) }}{% else %}—{% endif %}</span>
+  </div>
+  <div class="stat card">
+    <span class="stat-label">Frame step</span>
+    <span class="stat-value">{{ data.frame_step or "—" }}</span>
+  </div>
+</section>
+
+{% if data.debug %}
+<section class="card meta-block">
+  <h2>Debug</h2>
+  <ul class="meta-list">
+    <li>Frames diproses: <code>{{ data.debug.num_frames }}</code></li>
+    <li>Deteksi: <code>{{ data.debug.num_detections }}</code></li>
+    <li>Tracked: <code>{{ data.debug.num_tracked }}</code></li>
+    <li>Resize max width: <code>{{ data.resize_max_width }}</code></li>
+  </ul>
+</section>
+{% endif %}
+
+<section class="card">
+  <h2>Rally per rally</h2>
+  <p class="muted">Durasi dalam <strong>detik</strong> (timeline setelah sampling FPS).</p>
+  {% if not rallies %}
+    <p>Tidak ada rally terdeteksi.</p>
+  {% else %}
+  <div class="table-wrap">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Hits</th>
+          <th>Durasi (s)</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in rallies %}
+        <tr>
+          <td>{{ loop.index }}</td>
+          <td>{{ r['hits'] }}</td>
+          <td>{{ "%.2f"|format(r['duration']) }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+</section>
+
+<p class="actions">
+  <a class="btn" href="/">Unggah lagi</a>
+  <a class="btn btn-secondary" href="/history">Kembali ke history</a>
+</p>
+{% endblock %}

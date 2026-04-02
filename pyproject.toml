@@ -10,6 +10,7 @@ dependencies = [
   "ultralytics",
   "numpy",
   "python-multipart",
+  "jinja2",
 ]
 
 [tool.uvicorn]

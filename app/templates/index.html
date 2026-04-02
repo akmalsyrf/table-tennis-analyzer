@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}Upload{% endblock %}
+
+{% block content %}
+<section class="hero">
+  <h1>Analisis video latihan / pertandingan</h1>
+  <p class="lead">Unggah file video (MP4, dll.). Sistem akan mendeteksi bola dan menghitung perkiraan <strong>jumlah rally</strong> serta <strong>hit per rally</strong>.</p>
+</section>
+
+<section class="card upload-card">
+  <h2>Unggah video</h2>
+  <form class="upload-form" action="/upload" method="post" enctype="multipart/form-data">
+    <label class="file-label">
+      <span class="file-label-text">Pilih file video</span>
+      <input type="file" name="file" accept="video/*,.mp4,.mov,.webm,.mkv" required>
+    </label>
+    <button type="submit" class="btn btn-primary">Analisis</button>
+  </form>
+  <p class="hint muted">Proses bisa memakan waktu beberapa menit untuk video panjang (CPU). Hasil disimpan di folder <code>outputs/</code> dan muncul di <a href="/history">History</a>.</p>
+</section>
+{% endblock %}
