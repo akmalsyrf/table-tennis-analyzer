@@ -39,6 +39,35 @@
   </div>
 </section>
 
+{% if chart_json %}
+<section class="card charts-section">
+  <h2>Grafik</h2>
+  <p class="muted chart-intro">Visualisasi per rally: jumlah hit, durasi (detik), dan posisi kumulatif di timeline video.</p>
+  <div class="charts-grid">
+    <div class="chart-card">
+      <h3 class="chart-title">Hits per rally</h3>
+      <div class="chart-wrap" data-chart="hits">
+        <canvas id="chart-hits"></canvas>
+      </div>
+    </div>
+    <div class="chart-card">
+      <h3 class="chart-title">Durasi per rally (detik)</h3>
+      <div class="chart-wrap" data-chart="duration">
+        <canvas id="chart-duration"></canvas>
+      </div>
+    </div>
+    <div class="chart-card chart-card-wide">
+      <h3 class="chart-title">Waktu kumulatif (akhir tiap rally)</h3>
+      <p class="muted small-note">Sumbu X = nomor rally; Y = detik sejak awal rekaman (setelah sampling).</p>
+      <div class="chart-wrap chart-wrap-line">
+        <canvas id="chart-cumulative"></canvas>
+      </div>
+    </div>
+  </div>
+</section>
+<script id="chart-data" type="application/json">{{ chart_json|safe }}</script>
+{% endif %}
+
 {% if data.debug %}
 <section class="card meta-block">
   <h2>Debug</h2>
@@ -84,4 +113,172 @@
   <a class="btn" href="/">Unggah lagi</a>
   <a class="btn btn-secondary" href="/history">Kembali ke history</a>
 </p>
+{% endblock %}
+
+{% block extra_scripts %}
+{% if chart_json %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" crossorigin="anonymous"></script>
+<script>
+(function () {
+  var el = document.getElementById('chart-data');
+  if (!el || typeof Chart === 'undefined') return;
+  var raw = el.textContent || '{}';
+  var chartPayload;
+  try { chartPayload = JSON.parse(raw); } catch (e) { return; }
+  if (!chartPayload.labels || !chartPayload.labels.length) return;
+
+  var grid = '#2d3a4d';
+  var text = '#8b9cb3';
+  var accent = '#3d9cf0';
+  var accent2 = '#4ade80';
+  var accent3 = '#a78bfa';
+
+  Chart.defaults.color = text;
+  Chart.defaults.borderColor = grid;
+  Chart.defaults.font.family = '"DM Sans", system-ui, sans-serif';
+
+  var n = chartPayload.labels.length;
+  var barHeight = Math.min(720, Math.max(220, 22 * n));
+
+  function sizeBarWrap(canvas) {
+    var wrap = canvas.closest('.chart-wrap');
+    if (wrap && wrap.getAttribute('data-chart')) {
+      wrap.style.height = barHeight + 'px';
+    }
+  }
+
+  var baseScales = {
+    x: {
+      beginAtZero: true,
+      grid: { color: grid },
+      ticks: { color: text }
+    },
+    y: {
+      grid: { display: false },
+      ticks: { color: text, autoSkip: true, maxTicksLimit: 40 }
+    }
+  };
+
+  var commonBarOptions = {
+    indexAxis: 'y',
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: { display: false },
+      tooltip: {
+        backgroundColor: '#1a2332',
+        borderColor: grid,
+        borderWidth: 1
+      }
+    },
+    scales: baseScales
+  };
+
+  var c1 = document.getElementById('chart-hits');
+  if (c1) {
+    sizeBarWrap(c1);
+    new Chart(c1, {
+      type: 'bar',
+      data: {
+        labels: chartPayload.labels,
+        datasets: [{
+          label: 'Hits',
+          data: chartPayload.hits,
+          backgroundColor: accent + 'cc',
+          borderColor: accent,
+          borderWidth: 1
+        }]
+      },
+      options: {
+        indexAxis: 'y',
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: commonBarOptions.plugins,
+        scales: {
+          x: Object.assign({}, baseScales.x, {
+            title: { display: true, text: 'Hits', color: text }
+          }),
+          y: baseScales.y
+        }
+      }
+    });
+  }
+
+  var c2 = document.getElementById('chart-duration');
+  if (c2) {
+    sizeBarWrap(c2);
+    new Chart(c2, {
+      type: 'bar',
+      data: {
+        labels: chartPayload.labels,
+        datasets: [{
+          label: 'Detik',
+          data: chartPayload.durations,
+          backgroundColor: accent2 + 'aa',
+          borderColor: accent2,
+          borderWidth: 1
+        }]
+      },
+      options: {
+        indexAxis: 'y',
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: commonBarOptions.plugins,
+        scales: {
+          x: Object.assign({}, baseScales.x, {
+            title: { display: true, text: 'Detik', color: text }
+          }),
+          y: baseScales.y
+        }
+      }
+    });
+  }
+
+  var c3 = document.getElementById('chart-cumulative');
+  if (c3 && chartPayload.cumulative_s && chartPayload.cumulative_s.length) {
+    new Chart(c3, {
+      type: 'line',
+      data: {
+        labels: chartPayload.labels,
+        datasets: [{
+          label: 'Kumulatif (s)',
+          data: chartPayload.cumulative_s,
+          borderColor: accent3,
+          backgroundColor: accent3 + '22',
+          fill: true,
+          tension: 0.2,
+          pointRadius: n > 60 ? 0 : 3,
+          pointHoverRadius: 5
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            backgroundColor: '#1a2332',
+            borderColor: grid,
+            borderWidth: 1
+          }
+        },
+        scales: {
+          x: {
+            title: { display: true, text: 'Rally', color: text },
+            grid: { color: grid },
+            ticks: { color: text, maxTicksLimit: 20 }
+          },
+          y: {
+            beginAtZero: true,
+            title: { display: true, text: 'Detik', color: text },
+            grid: { color: grid },
+            ticks: { color: text }
+          }
+        }
+      }
+    });
+  }
+})();
+</script>
+{% endif %}
 {% endblock %}

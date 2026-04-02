@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import mimetypes
 import uuid
 from datetime import datetime
@@ -96,6 +97,25 @@ async def result_page(request: Request, analysis_id: str):
 
     rallies = data.get("rallies") or []
     video_path = find_uploaded_video(UPLOADS_DIR, analysis_id)
+
+    chart_json: str | None = None
+    if rallies:
+        labels = [f"#{i + 1}" for i in range(len(rallies))]
+        hits = [int(r.get("hits", 0) or 0) for r in rallies]
+        durations = [float(r.get("duration", 0) or 0) for r in rallies]
+        cumulative: list[float] = []
+        s = 0.0
+        for d in durations:
+            s += d
+            cumulative.append(round(s, 2))
+        chart_payload = {
+            "labels": labels,
+            "hits": hits,
+            "durations": durations,
+            "cumulative_s": cumulative,
+        }
+        chart_json = json.dumps(chart_payload)
+
     return templates.TemplateResponse(
         request=request,
         name="result.html",
@@ -104,5 +124,6 @@ async def result_page(request: Request, analysis_id: str):
             "data": data,
             "rallies": rallies,
             "video_available": video_path is not None,
+            "chart_json": chart_json,
         },
     )

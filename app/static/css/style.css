@@ -331,3 +331,59 @@ code {
 .muted-block p {
   margin: 0;
 }
+
+.charts-section h2 {
+  margin-bottom: 0.35rem;
+}
+
+.chart-intro {
+  margin: 0 0 1.25rem;
+  max-width: 60ch;
+}
+
+.charts-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1.25rem;
+}
+
+@media (min-width: 880px) {
+  .charts-grid {
+    grid-template-columns: 1fr 1fr;
+    align-items: start;
+  }
+
+  .chart-card-wide {
+    grid-column: 1 / -1;
+  }
+}
+
+.chart-card {
+  background: rgba(15, 20, 25, 0.35);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1rem 1rem 0.75rem;
+}
+
+.chart-title {
+  margin: 0 0 0.75rem;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.small-note {
+  font-size: 0.85rem;
+  margin: 0 0 0.75rem;
+}
+
+.chart-wrap {
+  position: relative;
+  width: 100%;
+  min-height: 220px;
+}
+
+.chart-wrap-line {
+  min-height: 280px;
+  height: 320px;
+}
