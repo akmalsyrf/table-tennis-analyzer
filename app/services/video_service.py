@@ -11,6 +11,7 @@ from app.cv.detection import BallDetector, Detection
 from app.cv.events import compute_rallies
 from app.cv.tracking import TrackPoint, track_positions
 from app.models.schema import AnalyzeResponse, RallyStats
+from app.services.overlay_service import generate_rally_hit_overlay_video
 
 logger = logging.getLogger(__name__)
 
@@ -76,6 +77,21 @@ def analyze_video(video_path: Path, outputs_dir: Path) -> AnalyzeResponse:
         # Require ~1.0s minimum rally length at effective FPS.
         min_frames_per_rally=max(6, int(round(1.0 * fps_eff))),
     )
+
+    # Generate an offline overlay video (rally + hit markers) for easier review.
+    try:
+        overlay_path = outputs_dir / "overlays" / f"{video_path.stem}.mp4"
+        generate_rally_hit_overlay_video(
+            video_path=video_path,
+            overlay_path=overlay_path,
+            track=track,
+            rallies=rallies,
+            fps_eff=fps_eff,
+            frame_step=frame_step,
+            resize_max_width=max_width,
+        )
+    except Exception:
+        logger.exception("Failed to generate overlay video for %s", video_path)
 
     response = AnalyzeResponse(
         total_rallies=len(rallies),

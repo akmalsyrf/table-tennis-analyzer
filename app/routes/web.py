@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import mimetypes
+import re
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -28,6 +29,17 @@ templates.env.filters["dt"] = _format_ts
 
 UPLOADS_DIR = Path("uploads")
 OUTPUTS_DIR = Path("outputs")
+OVERLAYS_DIR = OUTPUTS_DIR / "overlays"
+
+
+def find_overlay_video(analysis_id: str) -> Path | None:
+    """
+    Locate ``outputs/overlays/<analysis_id>.mp4`` for a valid hex id.
+    """
+    if not re.fullmatch(r"[0-9a-f]{32}", analysis_id):
+        return None
+    path = OVERLAYS_DIR / f"{analysis_id}.mp4"
+    return path if path.is_file() else None
 
 
 @router.get("/")
@@ -88,6 +100,18 @@ async def serve_analysis_video(analysis_id: str):
     )
 
 
+@router.get("/overlays/{analysis_id}")
+async def serve_overlay_video(analysis_id: str):
+    """Stream the generated overlay video for the analysis."""
+    path = find_overlay_video(analysis_id)
+    if path is None:
+        raise HTTPException(status_code=404, detail="Overlay video not found")
+    return FileResponse(
+        path,
+        media_type="video/mp4",
+    )
+
+
 @router.get("/results/{analysis_id}")
 async def result_page(request: Request, analysis_id: str):
     """Detail view for one analysis."""
@@ -97,6 +121,7 @@ async def result_page(request: Request, analysis_id: str):
 
     rallies = data.get("rallies") or []
     video_path = find_uploaded_video(UPLOADS_DIR, analysis_id)
+    overlay_path = find_overlay_video(analysis_id)
 
     chart_json: str | None = None
     if rallies:
@@ -124,6 +149,7 @@ async def result_page(request: Request, analysis_id: str):
             "data": data,
             "rallies": rallies,
             "video_available": video_path is not None,
+            "overlay_video_available": overlay_path is not None,
             "chart_json": chart_json,
         },
     )

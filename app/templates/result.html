@@ -7,10 +7,17 @@
 <h1>Hasil analisis</h1>
 <p class="lead">Video: <strong>{{ data.video_filename }}</strong></p>
 
-{% if video_available %}
+{% if overlay_video_available %}
+<section class="card video-card">
+  <h2>Putar video overlay (rally + hit)</h2>
+  <video class="result-video" controls playsinline preload="auto" src="/overlays/{{ data.id }}">
+    Browser tidak mendukung pemutaran video.
+  </video>
+</section>
+{% elif video_available %}
 <section class="card video-card">
   <h2>Putar video</h2>
-  <video class="result-video" controls playsinline preload="metadata" src="/videos/{{ data.id }}">
+  <video class="result-video" controls playsinline preload="auto" src="/videos/{{ data.id }}">
     Browser tidak mendukung pemutaran video.
   </video>
 </section>

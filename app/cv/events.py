@@ -12,6 +12,8 @@ class Rally:
     end_frame: int
     hits: int
     duration_s: float
+    # Frame indices (on the "effective" sampled timeline) where a "hit" is inferred.
+    hit_frames: tuple[int, ...]
 
 
 def _unit(vx: float, vy: float) -> tuple[float, float] | None:
@@ -51,6 +53,7 @@ def compute_rallies(
     last_seen = -1
     missing_run = 0
     hits = 0
+    hit_frames: list[int] = []
 
     prev_pt: TrackPoint | None = None
     prev_v: tuple[float, float] | None = None
@@ -63,11 +66,20 @@ def compute_rallies(
                     end = last_seen if last_seen >= 0 else i
                     if end - start + 1 >= min_frames_per_rally:
                         duration = max(0.0, (end - start + 1) / max(fps, 1e-6))
-                        rallies.append(Rally(start_frame=start, end_frame=end, hits=hits, duration_s=duration))
+                        rallies.append(
+                            Rally(
+                                start_frame=start,
+                                end_frame=end,
+                                hits=hits,
+                                duration_s=duration,
+                                hit_frames=tuple(hit_frames),
+                            )
+                        )
                     in_rally = False
                     prev_pt = None
                     prev_v = None
                     hits = 0
+                    hit_frames = []
                     missing_run = 0
             continue
 
@@ -81,6 +93,7 @@ def compute_rallies(
             prev_pt = pt
             prev_v = None
             hits = 0
+            hit_frames = []
             continue
 
         assert prev_pt is not None
@@ -90,6 +103,7 @@ def compute_rallies(
 
         if _direction_change(prev_v, v) >= direction_change_threshold:
             hits += 1
+            hit_frames.append(i)
 
         prev_v = v if v is not None else prev_v
         prev_pt = pt
@@ -99,7 +113,15 @@ def compute_rallies(
         end = last_seen if last_seen >= 0 else len(track) - 1
         if end - start + 1 >= min_frames_per_rally:
             duration = max(0.0, (end - start + 1) / max(fps, 1e-6))
-            rallies.append(Rally(start_frame=start, end_frame=end, hits=hits, duration_s=duration))
+            rallies.append(
+                Rally(
+                    start_frame=start,
+                    end_frame=end,
+                    hits=hits,
+                    duration_s=duration,
+                    hit_frames=tuple(hit_frames),
+                )
+            )
 
     return rallies
 
