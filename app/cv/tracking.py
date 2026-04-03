@@ -19,7 +19,8 @@ def _dist(a: TrackPoint, b: Detection) -> float:
 
 def track_positions(
     detections_by_frame: list[Detection | None],
-    max_jump_px: float = 80.0,
+    *,
+    max_jump_px: float,
 ) -> list[TrackPoint | None]:
     """
     Very simple single-object tracker:

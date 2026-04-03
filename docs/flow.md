@@ -118,9 +118,17 @@ Di `app/services/video_service.py`:
   - `debug.num_frames`, `debug.num_detections`, `debug.num_tracked`
   - `track` (list titik / null per frame)
 
+### 7) Video overlay (review visual)
+
+Setelah statistik dan JSON ditulis, pipeline dapat menghasilkan **video MP4 ber-overlay** (bola, rally, hit) untuk memudahkan inspeksi manual.
+
+- Penjelasan lengkap: `docs/overlay-video.md`
+- File output: `outputs/overlays/<video_stem>.mp4`
+- Web: halaman `/results/{id}` memutar overlay lewat `GET /overlays/{id}` bila file ada
+
 ## Parameter yang paling sering di-tuning
 
-Kalau hasil sudah “konsisten tapi belum akurat”, yang biasanya dituning:
+Kalau hasil sudah “konsisten tapi belum akurat”, yang biasanya dituning di `app/config.py`:
 
 - `target_fps` (semakin besar → lebih akurat tapi lebih lambat)
 - `max_width` (semakin besar → lebih akurat tapi lebih lambat)

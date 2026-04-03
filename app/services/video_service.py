@@ -7,6 +7,7 @@ from pathlib import Path
 
 import cv2
 
+from app.config import PIPELINE_TUNING
 from app.cv.detection import BallDetector, Detection
 from app.cv.events import compute_rallies
 from app.cv.tracking import TrackPoint, track_positions
@@ -14,6 +15,38 @@ from app.models.schema import AnalyzeResponse, RallyStats
 from app.services.overlay_service import generate_rally_hit_overlay_video
 
 logger = logging.getLogger(__name__)
+
+
+def _resize_frame_if_needed(frame, max_width: int):
+    if max_width <= 0:
+        return frame
+    h, w = frame.shape[:2]
+    if w <= max_width or w <= 0:
+        return frame
+    scale = max_width / float(w)
+    return cv2.resize(frame, (max_width, int(round(h * scale))), interpolation=cv2.INTER_AREA)
+
+
+def _collect_sampled_detections(
+    cap: cv2.VideoCapture,
+    *,
+    frame_step: int,
+    max_width: int,
+    detector: BallDetector,
+) -> list[Detection | None]:
+    detections_by_frame: list[Detection | None] = []
+    frame_idx = 0
+    while True:
+        ok, frame = cap.read()
+        if not ok:
+            break
+        if frame_idx % frame_step != 0:
+            frame_idx += 1
+            continue
+        frame = _resize_frame_if_needed(frame, max_width)
+        detections_by_frame.append(detector.detect(frame))
+        frame_idx += 1
+    return detections_by_frame
 
 
 def analyze_video(video_path: Path, outputs_dir: Path) -> AnalyzeResponse:
@@ -31,49 +64,35 @@ def analyze_video(video_path: Path, outputs_dir: Path) -> AnalyzeResponse:
 
     fps_native = float(cap.get(cv2.CAP_PROP_FPS) or 30.0)
 
-    # POC speed knobs (kept simple and conservative).
-    target_fps = 10.0
-    frame_step = max(1, int(round(max(fps_native, 1.0) / target_fps)))
+    t = PIPELINE_TUNING
+    frame_step = max(1, int(round(max(fps_native, 1.0) / t.target_fps)))
     fps_eff = fps_native / frame_step
 
-    max_width = 640  # resize for faster detection on CPU
+    detector = BallDetector(
+        yolo_model="yolov8n.pt",
+        yolo_conf=t.yolo_conf,
+        prefer_coco_sports_ball=True,
+    )
 
-    detector = BallDetector(yolo_model="yolov8n.pt", yolo_conf=0.25, prefer_coco_sports_ball=True)
-
-    detections_by_frame: list[Detection | None] = []
-    frame_idx = 0
-    while True:
-        ok, frame = cap.read()
-        if not ok:
-            break
-        if frame_idx % frame_step != 0:
-            frame_idx += 1
-            continue
-
-        if max_width > 0:
-            h, w = frame.shape[:2]
-            if w > max_width and w > 0:
-                scale = max_width / float(w)
-                frame = cv2.resize(frame, (max_width, int(round(h * scale))), interpolation=cv2.INTER_AREA)
-
-        det = detector.detect(frame)
-        detections_by_frame.append(det)
-        frame_idx += 1
+    detections_by_frame = _collect_sampled_detections(
+        cap,
+        frame_step=frame_step,
+        max_width=t.max_width,
+        detector=detector,
+    )
 
     cap.release()
 
     track: list[TrackPoint | None] = track_positions(
         detections_by_frame=detections_by_frame,
-        # With lower FPS and resized frames, allow a bit more jump tolerance.
-        max_jump_px=120.0,
+        max_jump_px=t.max_jump_px,
     )
 
     rallies = compute_rallies(
         track=track,
         fps=fps_eff,
-        # Missing threshold expressed in "effective frames": ~0.8s of missing ends a rally.
-        missing_end_frames=max(4, int(round(0.8 * fps_eff))),
-        direction_change_threshold=0.55,
+        missing_end_frames=t.missing_end_frames(fps_eff),
+        direction_change_threshold=t.direction_change_threshold,
         # Require ~1.0s minimum rally length at effective FPS.
         min_frames_per_rally=max(6, int(round(1.0 * fps_eff))),
     )
@@ -88,7 +107,7 @@ def analyze_video(video_path: Path, outputs_dir: Path) -> AnalyzeResponse:
             rallies=rallies,
             fps_eff=fps_eff,
             frame_step=frame_step,
-            resize_max_width=max_width,
+            resize_max_width=t.max_width,
         )
     except Exception:
         logger.exception("Failed to generate overlay video for %s", video_path)
@@ -106,7 +125,7 @@ def analyze_video(video_path: Path, outputs_dir: Path) -> AnalyzeResponse:
             "fps_native": fps_native,
             "fps_effective": fps_eff,
             "frame_step": frame_step,
-            "resize_max_width": max_width,
+            "resize_max_width": t.max_width,
             "total_rallies": response.total_rallies,
             "rallies": [r.model_dump() for r in response.rallies],
             "debug": {

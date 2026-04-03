@@ -10,6 +10,38 @@ import numpy as np
 logger = logging.getLogger(__name__)
 
 
+def _fallback_best_centroid_from_contours(
+    contours: list,
+    frame_w: int,
+    frame_h: int,
+) -> tuple[float, float] | None:
+    best: tuple[float, float] | None = None
+    best_score = -1.0
+    for c in contours:
+        area = float(cv2.contourArea(c))
+        if area < 4.0 or area > 800.0:
+            continue
+        _, _, cw, ch = cv2.boundingRect(c)
+        if cw <= 0 or ch <= 0:
+            continue
+        aspect = cw / float(ch)
+        if aspect < 0.5 or aspect > 2.0:
+            continue
+
+        m = cv2.moments(c)
+        if m["m00"] == 0:
+            continue
+        cx = float(m["m10"] / m["m00"])
+        cy = float(m["m01"] / m["m00"])
+
+        center_dist = ((cx - frame_w / 2.0) ** 2 + (cy - frame_h / 2.0) ** 2) ** 0.5
+        score = (1.0 / (1.0 + center_dist)) + (1.0 / (1.0 + abs(area - 40.0)))
+        if score > best_score:
+            best_score = score
+            best = (cx, cy)
+    return best
+
+
 @dataclass(frozen=True)
 class Detection:
     x: float
@@ -29,7 +61,8 @@ class BallDetector:
     def __init__(
         self,
         yolo_model: str = "yolov8n.pt",
-        yolo_conf: float = 0.25,
+        *,
+        yolo_conf: float,
         prefer_coco_sports_ball: bool = True,
     ) -> None:
         self._yolo = None
@@ -125,35 +158,10 @@ class BallDetector:
             if not contours:
                 return None
 
-            best = None
-            best_score = -1.0
-            for c in contours:
-                area = float(cv2.contourArea(c))
-                if area < 4.0 or area > 800.0:
-                    continue
-                _, _, cw, ch = cv2.boundingRect(c)
-                if cw <= 0 or ch <= 0:
-                    continue
-                aspect = cw / float(ch)
-                if aspect < 0.5 or aspect > 2.0:
-                    continue
-
-                m = cv2.moments(c)
-                if m["m00"] == 0:
-                    continue
-                cx = float(m["m10"] / m["m00"])
-                cy = float(m["m01"] / m["m00"])
-
-                # Prefer small, compact blobs near the center (weak prior)
-                center_dist = ((cx - w / 2.0) ** 2 + (cy - h / 2.0) ** 2) ** 0.5
-                score = (1.0 / (1.0 + center_dist)) + (1.0 / (1.0 + abs(area - 40.0)))
-                if score > best_score:
-                    best_score = score
-                    best = (cx, cy)
-
+            best = _fallback_best_centroid_from_contours(contours, w, h)
             if best is None:
                 return None
-            return Detection(x=best[0], y=best[1], conf=0.25)
+            return Detection(x=best[0], y=best[1], conf=float(self._yolo_conf))
         except Exception:
             logger.debug("Fallback detect failed", exc_info=True)
             return None

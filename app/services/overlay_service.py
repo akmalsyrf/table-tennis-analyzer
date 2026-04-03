@@ -141,7 +141,7 @@ def generate_rally_hit_overlay_video(
     rallies: list[Rally],
     fps_eff: float,
     frame_step: int,
-    resize_max_width: int = 640,
+    resize_max_width: int,
 ) -> None:
     """
     Generate an overlay MP4 where we draw:

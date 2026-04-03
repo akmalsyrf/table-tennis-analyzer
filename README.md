@@ -5,6 +5,7 @@ Minimal FastAPI API that accepts a table tennis video upload and returns simple 
 ### Docs
 
 - Pipeline flow: `docs/flow.md`
+- Video overlay (rally + hit): `docs/overlay-video.md`
 
 ### Setup
 
@@ -26,7 +27,7 @@ Then open **http://127.0.0.1:8000/** for the web UI (upload, history, result det
 
 - **/** — upload video (POST ke `/upload`, redirect to results)
 - **/history** — list of analyze from `outputs/*.json`
-- **/results/{id}** — detail one analyze (without heavy `track` payload)
+- **/results/{id}** — detail one analyze (without heavy `track` payload); video player uses **overlay** (`/overlays/{id}`) when present
 
 ### API
 
