@@ -34,7 +34,9 @@ Implementasi: `app/services/overlay_service.py` (`generate_rally_hit_overlay_vid
 
 | Elemen | Deskripsi |
 |--------|-----------|
-| Titik kuning | Pusat bola dari `track[track_i]` jika tidak `None`. |
+| Kotak **ROI** (magenta) | Play area hasil `detect_table_roi_frame` untuk frame itu (`rois_by_frame[track_i]`). Tidak digambar jika ROI `None`. |
+| Kotak **TABLE** (cyan) | Perkiraan permukaan meja (`table_x`, `table_y`, `table_w`, `table_h`) dari objek `TableROI` yang sama. |
+| Titik kuning | Pusat bola dari `track[track_i]` jika tidak `None` (setelah tracking, bukan raw detector). |
 | Teks atas | `Rally X/Y \| Hits Z` — rally ke-*X* dari *Y* total, *Z* = hit kumulatif untuk rally itu (sama dengan logika `compute_rallies`). |
 | Bar bawah | Timeline: latar abu-abu, segmen oranye = interval `[start_frame, end_frame]` rally aktif, garis putih = posisi saat ini di timeline. |
 | Teks **HIT** + lingkaran hijau | Hanya pada indeks frame yang ada di `Rally.hit_frames` (inferensi arah berubah drastis). |
@@ -55,7 +57,7 @@ OpenCV mencoba membuka `VideoWriter` dengan codec berurutan: `avc1`, `H264`, `X2
 
 ## Hubungan dengan JSON analisis
 
-File `outputs/<id>.json` berisi `track`, `rallies` (ringkas: `hits`, `duration`), dan metadata `fps_effective` / `frame_step`. Field `hit_frames` **tidak** diserialisasi ke JSON response publik; overlay memakai data `Rally` langsung di memori saat analisis. Untuk debugging mendalam, Anda bisa memperluas payload JSON (opsional) agar `hit_frames` ikut tersimpan.
+File `outputs/<id>.json` berisi `track` (per effective frame: posisi bola, `conf`, `source`, dan `roi` atau `null`), `rallies` (ringkas: `hits`, `duration`), dan metadata `fps_effective` / `frame_step`. Field `hit_frames` **tidak** diserialisasi ke JSON file; overlay memakai data `Rally` langsung di memori saat analisis. Response API `POST /analyze` hanya mengembalikan `total_rallies` dan `rallies` — detail track/ROI hanya di file JSON di `outputs/`.
 
 ## Referensi cepat kode
 

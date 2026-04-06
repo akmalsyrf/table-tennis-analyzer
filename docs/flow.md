@@ -1,10 +1,10 @@
 # Pipeline Flow (POC)
 
-Dokumen ini menjelaskan alur pemrosesan dari video sampai keluar statistik sederhana.
+Dokumen ini menjelaskan alur pemrosesan dari video sampai keluar statistik sederhana, sesuai kode saat ini.
 
 ## Ringkasan singkat
 
-`video` → (OpenCV decode) → `frames` (di-sampling + resize) → `ball detection` (YOLOv8 / fallback) → `tracking` → `event detection` → `stats` → JSON response + `outputs/<video_stem>.json`
+`video` → (OpenCV decode) → `frames` (di-sampling + resize) → **per effective frame:** `table ROI` (metadata) + `ball detection` (YOLO + frame differencing) → `tracking` → `event detection` → `stats` → JSON response + `outputs/<video_stem>.json` + optional overlay MP4.
 
 ## Flowchart
 
@@ -20,120 +20,105 @@ npx -y @mermaid-js/mermaid-cli -i docs/pipeline-flow.mmd -o docs/images/pipeline
 
 ### 1) API: upload → simpan file
 
-- Endpoint: `POST /analyze`
+- Endpoint: `POST /analyze` (JSON) dan alur web `POST /upload`
 - Input: multipart form field `file`
-- Output: JSON (schema `AnalyzeResponse`)
+- Output JSON (`AnalyzeResponse`): `total_rallies`, `rallies[]` (`hits`, `duration`). **Tidak** ada field `roi` di response API.
 
-Implementasi ada di `app/routes/analyze.py`:
-- video disimpan ke folder `uploads/`
-- lalu memanggil `analyze_video(video_path, outputs_dir)`
+Implementasi API: `app/routes/analyze.py` — video disimpan ke `uploads/`, lalu `analyze_video(video_path, outputs_dir)`.
 
 ### 2) Video → frames (decode + sampling + resize)
 
-Implementasi utama ada di `app/services/video_service.py`.
+Implementasi: `app/services/video_service.py` (`analyze_video`, `_collect_detections_and_rois`).
 
-Yang dilakukan:
-- Open video via `cv2.VideoCapture`
-- Baca `fps_native`
-- Tentukan sampling:
-  - `target_fps = 10`
-  - `frame_step = round(fps_native / target_fps)` (minimal 1)
-  - `fps_effective = fps_native / frame_step`
-- Loop `cap.read()`:
-  - **skip** frame bila `frame_idx % frame_step != 0`
-  - **resize** bila lebar frame lebih besar dari `max_width` (default 640)
+- `cv2.VideoCapture`, baca `fps_native`
+- `frame_step = max(1, round(fps_native / target_fps))` — default `target_fps` di `app/config.py` (`PipelineTuning`, biasanya **15**)
+- `fps_effective = fps_native / frame_step`
+- Hanya frame dengan `frame_idx % frame_step == 0`
+- Resize jika lebar > `max_width` (default **960**)
 
-Tujuan sampling+resize:
-- mengurangi jumlah frame yang diproses YOLO (lebih cepat di CPU)
-- menurunkan beban inference dengan resolusi lebih kecil
+### 3) Table ROI (per frame, metadata saja)
 
-### 3) Ball detection (YOLO → fallback)
+Implementasi: `app/cv/table_roi.py` (`detect_table_roi_frame`).
 
-Implementasi ada di `app/cv/detection.py` (`BallDetector`).
+- Mendeteksi area meja dengan **Canny + Hough lines** (garis putih meja), bukan HSV “blob biru”.
+- Hasil `TableROI | None` disimpan per frame di output JSON (`track[].roi`), dan dipakai overlay debug.
+- **Tidak** memfilter deteksi bola — bola tidak dipotong oleh ROI.
 
-#### a) YOLO path (utama)
+Parameter tuning lama `TableRoiTuning` di config masih ada untuk kompatibilitas; deteksi edge-based saat ini mengabaikan sebagian besar field tersebut (lihat docstring di `detect_table_roi_frame`).
+
+### 4) Ball detection (YOLO + motion)
+
+Implementasi: `app/cv/detection.py` (`BallDetector`), `app/cv/motion.py` (`MotionDetector`).
+
+**YOLO (utama):**
 
 - Model default: `yolov8n.pt`
-- `yolo_conf` default: `0.25`
-- Filter class:
-  - Jika output punya `cls`, maka **diprioritaskan** class id **32** (COCO: “sports ball”)
-  - Ini penting untuk mengurangi false-positive dari model COCO umum
+- Filter confidence `yolo_conf` (default ~0.30), ukuran bbox (`min_box_area` / `max_box_area`)
+- Prioritas class **32** (COCO “sports ball”) bila tersedia
 
-Output detector:
-- `Detection(x, y, conf)` = titik pusat bbox terbaik
-- atau `None` bila tidak ada deteksi yang lolos filter
+**Frame differencing:**
 
-#### b) Fallback path (aman/cepat, akurasi tergantung kondisi)
+- `prev_gray` vs `curr_gray`: `absdiff` → threshold → contour kecil sebagai `MotionBlob`
+- Skor kandidat YOLO digabung dengan **konfirmasi motion** di dekat pusat bbox (`motion_match_radius`)
+- Jika YOLO tidak menghasilkan apa pun: **fallback** ke blob motion terbaik (confidence rendah, `source="motion"`)
 
-Jika YOLO tidak tersedia / gagal:
-- Blur → HSV
-- mask putih (low saturation, high value) + mask orange
-- cari contour kecil (area range) dan ambil centroid
+**Output:** `Detection(x, y, conf, area, source)` — `source` salah satu `yolo`, `yolo+motion`, `motion`.
 
-### 4) Tracking (single-object, nearest-by-distance)
+Jika YOLO sama sekali tidak ter-load, dipakai path HSV fallback lama (`_detect_fallback`).
 
-Implementasi ada di `app/cv/tracking.py` (`track_positions`).
+### 5) Tracking (single-object, prediksi + cooldown)
 
-Aturan POC:
-- simpan `last` (posisi terakhir)
-- bila `det` berikutnya jaraknya <= `max_jump_px` → terima
-- bila terlalu jauh → anggap lost / false-positive → `None`
+Implementasi: `app/cv/tracking.py` (`track_positions`).
 
-Output:
-- list sepanjang jumlah “effective frames” (setelah sampling)
-- elemen berisi `TrackPoint` atau `None`
+- Prediksi posisi berikutnya dari kecepatan dua titik terakhir
+- Terima deteksi jika jarak ke prediksi ≤ `max_jump_px`
+- Setelah `reacquire_cooldown` miss berturut-turut, tracker reset (mencegah loncat ke false positive jauh)
 
-### 5) Event detection → rallies + hits
+Output: list `TrackPoint | None` dengan field `x`, `y`, `conf`, `source`.
 
-Implementasi ada di `app/cv/events.py` (`compute_rallies`).
+### 6) Event detection → rallies + hits
 
-#### Rally segmentation
+Implementasi: `app/cv/events.py` (`compute_rallies`).
 
-- **Start rally**: frame pertama yang punya `TrackPoint` (non-None)
-- **End rally**: bola hilang (`None`) selama `missing_end_frames` berturut-turut
-- Hanya simpan rally bila panjangnya ≥ `min_frames_per_rally`
+- Rally start / end / `hit_frames` seperti sebelumnya (missing frames, perubahan arah)
+- Semua threshold bekerja pada timeline **FPS efektif**
 
-Catatan: semua threshold ini bekerja pada **timeline FPS efektif** (setelah sampling).
-
-#### Hit detection (rule sederhana)
-
-Saat dalam rally:
-- hit dihitung jika ada perubahan arah besar
-- dihitung dari perubahan vektor kecepatan antar frame:
-  - hit jika `1 - dot(prev_dir, dir) >= direction_change_threshold`
-
-Interpretasi kasar:
-- makin kecil threshold → makin “sensitif” (lebih banyak hit)
-- makin besar threshold → makin “ketat” (lebih sedikit hit)
-
-### 6) Stats + output JSON
+### 7) Stats + output JSON
 
 Di `app/services/video_service.py`:
-- hasil rally dipetakan ke response:
-  - `total_rallies`
-  - `rallies[]: { hits, duration }`
-- `duration` dalam **detik** (\((end-start+1)/fps_effective\))
-- juga ditulis file debug `outputs/<video_stem>.json` yang berisi:
+
+- Response API: `total_rallies`, `rallies[]`
+- File `outputs/<video_stem>.json`:
   - `fps_native`, `fps_effective`, `frame_step`, `resize_max_width`
-  - `debug.num_frames`, `debug.num_detections`, `debug.num_tracked`
-  - `track` (list titik / null per frame)
+  - `debug`: `num_frames`, `num_detections`, `num_tracked`
+  - `track`: per indeks effective frame, objek dengan `x`, `y`, `conf`, `source`, dan **`roi`** (dict play area + `table_*`, atau `null` jika meja tidak terdeteksi) — cocok untuk klip kamera yang berganti (wide / close-up / replay)
 
-### 7) Video overlay (review visual)
+### 8) Video overlay (review visual)
 
-Setelah statistik dan JSON ditulis, pipeline dapat menghasilkan **video MP4 ber-overlay** (bola, rally, hit) untuk memudahkan inspeksi manual.
+- `outputs/overlays/<video_stem>.mp4`
+- Detail: `docs/overlay-video.md`
+- Termasuk kotak debug **ROI** (magenta) dan **TABLE** (cyan) per frame bila ROI terdeteksi
 
-- Penjelasan lengkap: `docs/overlay-video.md`
-- File output: `outputs/overlays/<video_stem>.mp4`
-- Web: halaman `/results/{id}` memutar overlay lewat `GET /overlays/{id}` bila file ada
+### 9) Evaluasi visual (offline)
+
+Script: `scripts/eval_detection.py` — cuplikan frame dengan panel YOLO + motion + hasil akhir + ROI.
+
+```bash
+just eval-detection uploads/<id>.mp4 --samples 30
+```
+
+Lihat juga `justfile` recipe `eval-detection`.
 
 ## Parameter yang paling sering di-tuning
 
-Kalau hasil sudah “konsisten tapi belum akurat”, yang biasanya dituning di `app/config.py`:
+Di `app/config.py` (`PipelineTuning` dan turunannya):
 
-- `target_fps` (semakin besar → lebih akurat tapi lebih lambat)
-- `max_width` (semakin besar → lebih akurat tapi lebih lambat)
-- `yolo_conf` (lebih tinggi → kurang false positive tapi bisa miss ball)
-- `max_jump_px` (lebih tinggi → track lebih “nyambung” tapi rawan loncat ke false positive)
-- `missing_end_frames` (lebih tinggi → rally lebih panjang / tidak cepat putus)
-- `direction_change_threshold` (lebih rendah → hit count naik)
+| Area | Field | Efek kasar |
+|------|--------|------------|
+| Sampling | `target_fps`, `max_width` | Akurasi vs kecepatan |
+| YOLO | `yolo_conf`, `max_box_area`, `min_box_area` | Miss vs false positive |
+| Motion | `motion_match_radius` | Seberapa dekat motion harus ke bbox YOLO |
+| Track | `max_jump_px`, `reacquire_cooldown` | Kelancaran track vs penolakan loncatan |
+| Rally | `missing_end_seconds`, `missing_end_min_frames`, `direction_change_threshold` | Panjang rally / sensitivitas hit |
 
+Untuk table ROI edge-based, parameter masih di dalam `table_roi.py` (Canny/Hough); belum semua diekspos ke `TableRoiTuning`.

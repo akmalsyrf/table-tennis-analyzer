@@ -2,6 +2,9 @@
 uploads/
 outputs/
 
+# Evaluation output
+eval_out/
+
 # YOLO model
 yolov8n.pt
 

@@ -7,6 +7,16 @@ Minimal FastAPI API that accepts a table tennis video upload and returns simple 
 - Pipeline flow: `docs/flow.md`
 - Video overlay (rally + hit): `docs/overlay-video.md`
 
+### Visual eval (detection debug)
+
+Generate side-by-side PNGs (YOLO candidates, frame-diff motion, final pick + table ROI) for a video:
+
+```bash
+just eval-detection uploads/<analysis_id>.mp4 --samples 30
+```
+
+Optional: `--out <dir>` (default `eval_out`). Requires the same venv as `just install` / `just run`.
+
 ### Setup
 
 Recommended (uses `justfile`):
@@ -38,6 +48,8 @@ Example:
 ```bash
 just analyze /path/to/video.mp4
 ```
+
+After uploading via the web UI, use the file under `uploads/` with `just eval-detection` to inspect detection behaviour frame-by-frame.
 
 ### Fallback (no `just`)
 
