@@ -1,6 +1,11 @@
 from __future__ import annotations
 
 import logging
+import os
+import platform
+import shutil
+import subprocess
+import tempfile
 from pathlib import Path
 
 import cv2
@@ -172,6 +177,70 @@ def _open_video_writer(
     return None
 
 
+def _default_codec_candidates() -> list[str]:
+    """
+    Choose a codec order that avoids noisy failures on common Linux OpenCV builds.
+
+    You can force H.264-first probing by setting:
+    - OVERLAY_PREFER_H264=1
+    """
+    prefer_h264 = os.getenv("OVERLAY_PREFER_H264", "").strip().lower() in {"1", "true", "yes", "on"}
+    if prefer_h264:
+        return ["avc1", "H264", "X264", "mp4v"]
+
+    if platform.system().lower() == "linux":
+        # Many Linux builds will emit ffmpeg stderr when probing H.264 encoders (e.g. v4l2m2m)
+        # before falling back; try mp4v first to keep logs clean and keep overlay generation robust.
+        return ["mp4v", "avc1", "H264", "X264"]
+
+    return ["avc1", "H264", "X264", "mp4v"]
+
+
+def _transcode_with_ffmpeg_if_available(*, src_path: Path, dst_path: Path) -> bool:
+    """
+    Best-effort transcode to browser-friendly H.264 MP4.
+
+    - Requires `ffmpeg` in PATH.
+    - Uses `-movflags +faststart` for progressive playback (moov atom upfront).
+    """
+    if shutil.which("ffmpeg") is None:
+        return False
+
+    # Allow disabling even if ffmpeg exists.
+    enabled = os.getenv("OVERLAY_TRANSCODE", "").strip().lower() not in {"0", "false", "no", "off"}
+    if not enabled:
+        return False
+
+    dst_path.parent.mkdir(parents=True, exist_ok=True)
+    cmd = [
+        "ffmpeg",
+        "-y",
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-i",
+        str(src_path),
+        "-c:v",
+        "libx264",
+        "-pix_fmt",
+        "yuv420p",
+        "-movflags",
+        "+faststart",
+        str(dst_path),
+    ]
+    try:
+        proc = subprocess.run(cmd, check=False, capture_output=True, text=True)
+    except Exception:
+        logger.exception("ffmpeg transcode crashed")
+        return False
+
+    if proc.returncode != 0:
+        logger.warning("ffmpeg transcode failed (rc=%s): %s", proc.returncode, (proc.stderr or "").strip())
+        return False
+
+    return dst_path.is_file() and dst_path.stat().st_size > 0
+
+
 def _get_frame_roi(rois_by_frame: list[TableROI | None] | None, track_i: int) -> TableROI | None:
     if not rois_by_frame or track_i >= len(rois_by_frame):
         return None
@@ -269,8 +338,13 @@ def generate_rally_hit_overlay_video(
     rally_by_frame = _build_rally_by_frame(track_len=track_len, rallies=rallies)
     hits_by_rally = [set(r.hit_frames) for r in rallies]
 
+    codec_candidates = _default_codec_candidates()
+
+    # Write into a temporary file first so we can optionally transcode to H.264 for browsers.
+    tmp_dir = Path(tempfile.gettempdir())
+    tmp_overlay_path = tmp_dir / f"{overlay_path.stem}.tmp-{os.getpid()}.mp4"
+
     writer: cv2.VideoWriter | None = None
-    codec_candidates = ["avc1", "H264", "X264", "mp4v"]
     writer, _, _ = _write_overlay_frames(
         cap=cap,
         writer=writer,
@@ -282,7 +356,7 @@ def generate_rally_hit_overlay_video(
         rois_by_frame=rois_by_frame,
         frame_step=frame_step,
         resize_max_width=resize_max_width,
-        overlay_path=overlay_path,
+        overlay_path=tmp_overlay_path,
         fps_eff=fps_eff,
         codec_candidates=codec_candidates,
     )
@@ -290,4 +364,23 @@ def generate_rally_hit_overlay_video(
     cap.release()
     if writer is not None:
         writer.release()
+
+    if not tmp_overlay_path.is_file():
+        return
+
+    # Prefer a browser-friendly H.264 mp4 if ffmpeg is available; otherwise keep raw output.
+    try:
+        if _transcode_with_ffmpeg_if_available(src_path=tmp_overlay_path, dst_path=overlay_path):
+            tmp_overlay_path.unlink(missing_ok=True)
+            return
+
+        # Fallback: move raw mp4 into place.
+        overlay_path.parent.mkdir(parents=True, exist_ok=True)
+        tmp_overlay_path.replace(overlay_path)
+    except Exception:
+        logger.exception("Failed finalizing overlay video: %s", overlay_path)
+        try:
+            tmp_overlay_path.unlink(missing_ok=True)
+        except Exception:
+            pass
 

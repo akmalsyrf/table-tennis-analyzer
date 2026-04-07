@@ -53,7 +53,24 @@ Artinya: durasi video overlay mengikuti **FPS efektif** (`fps_effective`), dan j
 
 ## Codec dan browser
 
-OpenCV mencoba membuka `VideoWriter` dengan codec berurutan: `avc1`, `H264`, `X264`, lalu fallback `mp4v`. Codec yang dipilih tergantung build OpenCV/OS. H.264 umumnya lebih ramah untuk pemutaran di browser; jika hanya `mp4v` yang berhasil, beberapa browser bisa bermasalah — kalau perlu, uji di Chrome/Firefox atau konversi manual dengan ffmpeg.
+Default-nya, OpenCV mencoba membuka `VideoWriter` dengan codec berurutan:
+
+- Linux: `mp4v` dulu (supaya tidak memicu error/noise ffmpeg ketika probing H.264), lalu `avc1`, `H264`, `X264`.
+- Non-Linux: `avc1`, `H264`, `X264`, lalu fallback `mp4v`.
+
+Jika ingin memaksa probing H.264 dulu (lebih ramah untuk pemutaran di browser), set env `OVERLAY_PREFER_H264=1`.
+
+Catatan: jika hanya `mp4v` yang berhasil, beberapa browser bisa bermasalah — kalau perlu, uji di Chrome/Firefox atau konversi manual dengan ffmpeg.
+
+### Transcode otomatis (disarankan untuk web)
+
+Jika `ffmpeg` tersedia di PATH, generator overlay akan mencoba **transcode otomatis** menjadi:
+
+- H.264 (`libx264`)
+- `-pix_fmt yuv420p`
+- `-movflags +faststart` (supaya video bisa mulai diputar sebelum full download)
+
+Kamu bisa mematikan transcode dengan env `OVERLAY_TRANSCODE=0`.
 
 ## Hubungan dengan JSON analisis
 
